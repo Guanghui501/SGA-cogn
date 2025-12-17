@@ -78,6 +78,7 @@ def networkx_to_dgl(
     nx_graph: MultiDiGraph,
     atom_features: str = "atomic_number",
     include_line_graph: bool = False,
+    ensure_bidirectional: bool = True,
 ) -> Union[dgl.DGLGraph, Tuple[dgl.DGLGraph, dgl.DGLGraph]]:
     """Convert a kgcnn NetworkX graph to DGL format.
 
@@ -85,6 +86,7 @@ def networkx_to_dgl(
         nx_graph: NetworkX MultiDiGraph from kgcnn graph_builder
         atom_features: Type of atom features to use
         include_line_graph: Whether to also return the line graph
+        ensure_bidirectional: Whether to ensure all edges have reverse edges (CRITICAL for GNN)
 
     Returns:
         DGL graph (and optionally line graph)
@@ -111,26 +113,49 @@ def networkx_to_dgl(
         cart_coords.append(node_data.get('coords', [0, 0, 0]))
         multiplicities.append(node_data.get('multiplicity', 1))
 
-    # Extract edge data
+    # Extract edge data - and ensure bidirectional edges like ALIGNN does
+    # This is CRITICAL: ALIGNN explicitly creates both A->B and B->A edges for each neighbor pair
+    # kgcnn only creates directed edges, which can break GNN message passing
     src_nodes = []
     dst_nodes = []
     offsets = []
     distances = []
     cell_translations = []
 
+    # Track existing edges to avoid duplicates when adding reverse edges
+    existing_edges = set()
+
     for edge in nx_graph.edges(data=True):
         src, dst, edge_data = edge
-        src_nodes.append(src)
-        dst_nodes.append(dst)
 
         # Get edge attributes
         offset = edge_data.get('offset', np.zeros(3))
         distance = edge_data.get('distance', 0.0)
         cell_translation = edge_data.get('cell_translation', np.zeros(3))
 
-        offsets.append(offset)
-        distances.append(distance)
-        cell_translations.append(cell_translation)
+        # Create edge key for deduplication (include cell translation for periodic images)
+        edge_key = (src, dst, tuple(np.round(cell_translation).astype(int)))
+
+        if edge_key not in existing_edges:
+            src_nodes.append(src)
+            dst_nodes.append(dst)
+            offsets.append(offset)
+            distances.append(distance)
+            cell_translations.append(cell_translation)
+            existing_edges.add(edge_key)
+
+        # Add reverse edge if ensure_bidirectional is True (like ALIGNN does)
+        if ensure_bidirectional:
+            reverse_cell_translation = -np.array(cell_translation)
+            reverse_edge_key = (dst, src, tuple(np.round(reverse_cell_translation).astype(int)))
+
+            if reverse_edge_key not in existing_edges:
+                src_nodes.append(dst)
+                dst_nodes.append(src)
+                offsets.append(-np.array(offset))  # Negate offset for reverse direction
+                distances.append(distance)  # Distance is the same
+                cell_translations.append(reverse_cell_translation)
+                existing_edges.add(reverse_edge_key)
 
     # Create DGL graph
     if len(src_nodes) > 0:
