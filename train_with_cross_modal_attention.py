@@ -801,7 +801,7 @@ def main():
 
     # 创建数据加载器
     print("创建数据加载器...")
-    loader_kwargs = dict( 
+    loader_kwargs = dict(
         dataset_array=dataset_array,
         target=config.target,
         n_train=args.n_train,
@@ -825,7 +825,9 @@ def main():
         standard_scalar_and_pca=config.standard_scalar_and_pca,
         keep_data_order=config.keep_data_order,
         output_dir=config.output_dir,
-        graph_builder=config.graph_builder
+        graph_builder=config.graph_builder,
+        edge_strategy=config.edge_strategy,
+        use_symmetry=config.use_symmetry
     )
     # 兼容未包含 graph_builder 参数的旧版 get_train_val_loaders 定义
     try:

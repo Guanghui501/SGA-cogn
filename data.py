@@ -91,58 +91,67 @@ def load_graphs(
         """Convert structure dict to DGLGraph."""
         structure = Atoms.from_dict(atoms)
 
+        # For kgcnn-based builders, we don't use line_graph (coGN uses edge features instead)
+        # So we always set compute_line_graph=False for these builders
+        use_line_graph_for_kgcnn = False  # coGN doesn't need line graph
+
         # Legacy graph builders
         if graph_builder == "cogn":
-            return build_cogn_dgl_graph(
+            result = build_cogn_dgl_graph(
                 structure,
                 cutoff=cutoff,
                 max_neighbors=max_neighbors,
                 atom_features="atomic_number",
-                compute_line_graph=line_graph,
+                compute_line_graph=use_line_graph_for_kgcnn,
                 use_canonize=use_canonize,
             )
+            return result[0] if isinstance(result, tuple) else result
 
         if graph_builder == "kgcnn":
-            return build_kgcnn_graph(
+            result = build_kgcnn_graph(
                 structure,
                 cutoff=cutoff,
                 max_neighbors=max_neighbors,
                 atom_features="atomic_number",
                 edge_strategy=edge_strategy,
-                compute_line_graph=line_graph,
+                compute_line_graph=use_line_graph_for_kgcnn,
                 use_symmetry=use_symmetry,
             )
+            return result[0] if isinstance(result, tuple) else result
 
         # Specific kgcnn edge strategies
         if graph_builder == "kgcnn_knn":
-            return build_kgcnn_graph(
+            result = build_kgcnn_graph(
                 structure,
                 cutoff=cutoff,
                 max_neighbors=max_neighbors,
                 atom_features="atomic_number",
                 edge_strategy="knn",
-                compute_line_graph=line_graph,
+                compute_line_graph=use_line_graph_for_kgcnn,
                 use_symmetry=use_symmetry,
             )
+            return result[0] if isinstance(result, tuple) else result
 
         if graph_builder == "kgcnn_radius":
-            return build_radius_graph(
+            result = build_radius_graph(
                 structure,
                 radius=cutoff,
                 atom_features="atomic_number",
-                compute_line_graph=line_graph,
+                compute_line_graph=use_line_graph_for_kgcnn,
                 use_symmetry=use_symmetry,
             )
+            return result[0] if isinstance(result, tuple) else result
 
         if graph_builder == "kgcnn_voronoi":
-            return build_voronoi_graph(
+            result = build_voronoi_graph(
                 structure,
                 atom_features="atomic_number",
-                compute_line_graph=line_graph,
+                compute_line_graph=use_line_graph_for_kgcnn,
                 use_symmetry=use_symmetry,
             )
+            return result[0] if isinstance(result, tuple) else result
 
-        # Default: ALIGNN graph builder
+        # Default: ALIGNN graph builder (supports line_graph)
         return Graph.atom_dgl_multigraph(
             structure,
             cutoff=cutoff,
@@ -216,12 +225,15 @@ def get_id_train_val_test(total_size=1000,split_seed=123,train_ratio=None,val_ra
 
 
 def get_torch_dataset(dataset=[],id_tag="jid",target="",neighbor_strategy="",atom_features="",use_canonize="",
-		      name="",line_graph="",cutoff=8.0,max_neighbors=12,graph_builder: str = "alignn"):
+		      name="",line_graph="",cutoff=8.0,max_neighbors=12,graph_builder: str = "alignn",
+		      edge_strategy: str = "knn", use_symmetry: bool = False):
     """Get Torch Dataset."""
     df = pd.DataFrame(dataset)
     vals = df[target].values
     print("data range", np.max(vals), np.min(vals))
-    graphs = load_graphs(df,name=name,neighbor_strategy=neighbor_strategy,use_canonize=use_canonize,cutoff=cutoff,max_neighbors=max_neighbors,line_graph=line_graph,graph_builder=graph_builder)
+    graphs = load_graphs(df,name=name,neighbor_strategy=neighbor_strategy,use_canonize=use_canonize,
+                         cutoff=cutoff,max_neighbors=max_neighbors,line_graph=line_graph,
+                         graph_builder=graph_builder,edge_strategy=edge_strategy,use_symmetry=use_symmetry)
     data = StructureDataset(df,graphs,target=target,atom_features=atom_features,line_graph=line_graph,id_tag=id_tag)
     return data
 
@@ -230,9 +242,8 @@ def get_train_val_loaders(dataset: str = "dft_3d",dataset_array=[],target: str =
                           n_train=None,n_val=None,n_test=None,train_ratio=None,val_ratio=0.1,test_ratio=0.1,batch_size: int = 5,line_graph: bool = True,split_seed: int = 123,
                           workers: int = 0,pin_memory: bool = True,save_dataloader: bool = False,filename: str = "sample",id_tag: str = "jid",use_canonize: bool = False,
                           cutoff: float = 8.0,max_neighbors: int = 12,target_multiplication_factor: Optional[float] = None,standard_scalar_and_pca=False,keep_data_order=False,
-                          output_dir=None,raph_builder: str = "alignn"):
+                          output_dir=None,graph_builder: str = "alignn",edge_strategy: str = "knn",use_symmetry: bool = False):
     """Help function to set up JARVIS train and val dataloaders."""
-    graph_builder = locals().get("graph_builder", "alignn")
     print('Batch Size:',batch_size)
     train_sample = filename + "_train.data"
     val_sample = filename + "_val.data"
@@ -313,13 +324,16 @@ def get_train_val_loaders(dataset: str = "dft_3d",dataset_array=[],target: str =
             # pk.dump(pc, open("pca.pkl", "wb"))
 
         train_data = get_torch_dataset(dataset=dataset_train,id_tag=id_tag,atom_features=atom_features,target=target,neighbor_strategy=neighbor_strategy,
-                                       use_canonize=use_canonize,name=dataset,line_graph=line_graph,cutoff=cutoff,max_neighbors=max_neighbors,graph_builder=graph_builder)
+                                       use_canonize=use_canonize,name=dataset,line_graph=line_graph,cutoff=cutoff,max_neighbors=max_neighbors,
+                                       graph_builder=graph_builder,edge_strategy=edge_strategy,use_symmetry=use_symmetry)
 
         val_data = get_torch_dataset(dataset=dataset_val,id_tag=id_tag,atom_features=atom_features,target=target,neighbor_strategy=neighbor_strategy,
-                                      use_canonize=use_canonize,name=dataset,line_graph=line_graph,cutoff=cutoff,max_neighbors=max_neighbors,graph_builder=graph_builder)
+                                      use_canonize=use_canonize,name=dataset,line_graph=line_graph,cutoff=cutoff,max_neighbors=max_neighbors,
+                                      graph_builder=graph_builder,edge_strategy=edge_strategy,use_symmetry=use_symmetry)
 
         test_data = get_torch_dataset(dataset=dataset_test,id_tag=id_tag,atom_features=atom_features,target=target,neighbor_strategy=neighbor_strategy,
-                                      use_canonize=use_canonize,name=dataset,line_graph=line_graph,cutoff=cutoff,max_neighbors=max_neighbors,graph_builder=graph_builder)
+                                      use_canonize=use_canonize,name=dataset,line_graph=line_graph,cutoff=cutoff,max_neighbors=max_neighbors,
+                                      graph_builder=graph_builder,edge_strategy=edge_strategy,use_symmetry=use_symmetry)
 
         collate_fn = train_data.collate
         if line_graph:
