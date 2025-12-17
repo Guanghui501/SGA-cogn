@@ -162,7 +162,9 @@ class TrainingConfig(BaseSettings):
     atom_features: Literal["basic", "atomic_number", "cfid", "cgcnn"] = "cgcnn"
     neighbor_strategy: Literal["k-nearest", "voronoi"] = "k-nearest"
     id_tag: Literal["jid", "id", "_oqmd_entry_id"] = "jid"
-    graph_builder: Literal["alignn", "cogn", "kgcnn"] = "alignn"
+    graph_builder: Literal["alignn", "cogn", "kgcnn", "kgcnn_knn", "kgcnn_radius", "kgcnn_voronoi"] = "alignn"
+    edge_strategy: Literal["knn", "radius", "voronoi"] = "knn"
+    use_symmetry: bool = False
 
     # logging configuration
 

@@ -13,7 +13,13 @@ import numpy as np
 import pandas as pd
 from jarvis.core.atoms import Atoms
 from graphs import Graph, StructureDataset
-from cogn_graphs import build_cogn_dgl_graph, build_cogn_kgcnn_graph
+from cogn_graphs import (
+    build_cogn_dgl_graph,
+    build_cogn_kgcnn_graph,
+    build_kgcnn_graph,
+    build_radius_graph,
+    build_voronoi_graph,
+)
 from jarvis.db.figshare import data as jdata
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -37,8 +43,6 @@ def mean_absolute_deviation(data, axis=None):
     return np.mean(np.absolute(data - np.mean(data, axis)), axis)
 
 
-#def load_graphs(df: pd.DataFrame,name: str = "dft_3d",neighbor_strategy: str = "k-nearest",cutoff: float = 8,max_neighbors: int = 12,
-#                cachedir: Optional[Path] = None,use_canonize: bool = False):
 def load_graphs(
     df: pd.DataFrame,
     name: str = "dft_3d",
@@ -49,49 +53,102 @@ def load_graphs(
     use_canonize: bool = False,
     line_graph: bool = False,
     graph_builder: str = "alignn",
+    edge_strategy: str = "knn",
+    use_symmetry: bool = False,
 ):
     """Construct crystal graphs.
 
     Load only atomic number node features
     and bond displacement vector edge features.
 
-    Resulting graphs have scheme e.g.
-    ```
-    Graph(num_nodes=12, num_edges=156,
-          ndata_schemes={'atom_features': Scheme(shape=(1,)}
-          edata_schemes={'r': Scheme(shape=(3,)})
-    ```
+    Args:
+        df: DataFrame with atoms data
+        name: Dataset name for caching
+        neighbor_strategy: Neighbor search strategy (legacy, use edge_strategy instead)
+        cutoff: Distance cutoff (Angstrom)
+        max_neighbors: Maximum neighbors for k-NN
+        cachedir: Cache directory for graphs
+        use_canonize: Use canonical edges (legacy)
+        line_graph: Whether to compute line graph
+        graph_builder: Graph builder type:
+            - "alignn": Original ALIGNN graph builder
+            - "cogn": coGN graph builder (kNN, uses kgcnn internally)
+            - "kgcnn": kgcnn graph builder with configurable edge strategy
+            - "kgcnn_knn": kgcnn with k-NN edges
+            - "kgcnn_radius": kgcnn with radius-based edges
+            - "kgcnn_voronoi": kgcnn with Voronoi edges
+        edge_strategy: Edge construction strategy for kgcnn builders:
+            - "knn": k-nearest neighbors
+            - "radius": radius-based cutoff
+            - "voronoi": Voronoi tessellation
+        use_symmetry: Whether to use crystal symmetry (asymmetric unit)
+
+    Returns:
+        List of DGL graphs
     """
 
     def atoms_to_graph(atoms):
         """Convert structure dict to DGLGraph."""
         structure = Atoms.from_dict(atoms)
-  #      return Graph.atom_dgl_multigraph(structure,cutoff=cutoff,atom_features="atomic_number",max_neighbors=max_neighbors,compute_line_graph=False,use_canonize=use_canonize)
+
+        # Legacy graph builders
         if graph_builder == "cogn":
             return build_cogn_dgl_graph(
                 structure,
                 cutoff=cutoff,
                 max_neighbors=max_neighbors,
                 atom_features="atomic_number",
-                compute_line_graph=False,
+                compute_line_graph=line_graph,
                 use_canonize=use_canonize,
             )
+
         if graph_builder == "kgcnn":
-            return build_cogn_kgcnn_graph(
+            return build_kgcnn_graph(
                 structure,
                 cutoff=cutoff,
                 max_neighbors=max_neighbors,
                 atom_features="atomic_number",
-                compute_line_graph=False,
-                use_canonize=use_canonize,
+                edge_strategy=edge_strategy,
+                compute_line_graph=line_graph,
+                use_symmetry=use_symmetry,
             )
 
+        # Specific kgcnn edge strategies
+        if graph_builder == "kgcnn_knn":
+            return build_kgcnn_graph(
+                structure,
+                cutoff=cutoff,
+                max_neighbors=max_neighbors,
+                atom_features="atomic_number",
+                edge_strategy="knn",
+                compute_line_graph=line_graph,
+                use_symmetry=use_symmetry,
+            )
+
+        if graph_builder == "kgcnn_radius":
+            return build_radius_graph(
+                structure,
+                radius=cutoff,
+                atom_features="atomic_number",
+                compute_line_graph=line_graph,
+                use_symmetry=use_symmetry,
+            )
+
+        if graph_builder == "kgcnn_voronoi":
+            return build_voronoi_graph(
+                structure,
+                atom_features="atomic_number",
+                compute_line_graph=line_graph,
+                use_symmetry=use_symmetry,
+            )
+
+        # Default: ALIGNN graph builder
         return Graph.atom_dgl_multigraph(
             structure,
             cutoff=cutoff,
             atom_features="atomic_number",
             max_neighbors=max_neighbors,
-            compute_line_graph=False,
+            compute_line_graph=line_graph,
             use_canonize=use_canonize,
         )
     if cachedir is not None:

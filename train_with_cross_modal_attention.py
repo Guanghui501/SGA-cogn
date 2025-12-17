@@ -95,8 +95,13 @@ def get_parser():
     
     # 图构建方式（默认使用 kgcnn 风格的 coGN 图，兼容命令行参数）
     parser.add_argument('--graph_builder', type=str, default='kgcnn',
-                        choices=['alignn', 'cogn', 'kgcnn'],
-                        help='图构建器选择：alignn(旧版), cogn(旧版), kgcnn(推荐，兼容coGN输入)')
+                        choices=['alignn', 'cogn', 'kgcnn', 'kgcnn_knn', 'kgcnn_radius', 'kgcnn_voronoi'],
+                        help='图构建器选择：alignn(旧版), cogn(旧版), kgcnn(推荐), kgcnn_knn, kgcnn_radius, kgcnn_voronoi')
+    parser.add_argument('--edge_strategy', type=str, default='knn',
+                        choices=['knn', 'radius', 'voronoi'],
+                        help='边构建策略：knn(k近邻), radius(半径截断), voronoi(Voronoi分割)')
+    parser.add_argument('--use_symmetry', type=str2bool, default=False,
+                        help='是否使用晶体对称性（非对称单元）')
 
 
     # 数据划分参数
@@ -569,6 +574,8 @@ def create_config(args):
         "neighbor_strategy": "k-nearest",
         "id_tag": "jid",
         "graph_builder": args.graph_builder.lower(),
+        "edge_strategy": args.edge_strategy.lower(),
+        "use_symmetry": args.use_symmetry,
         "random_seed": args.random_seed,
         "classification_threshold": args.classification_threshold if args.classification else None,
 
@@ -644,6 +651,17 @@ def main():
     if args.classification:
         print(f"  分类阈值: {args.classification_threshold}")
         print(f"  损失函数: BCE (Binary Cross Entropy)")
+
+    print(f"\n图构建配置:")
+    print(f"  图构建器: {args.graph_builder}")
+    print(f"  边策略: {args.edge_strategy}")
+    edge_desc = {
+        'knn': 'k-近邻 (保留每个原子的k个最近邻)',
+        'radius': '半径截断 (保留距离小于cutoff的所有邻居)',
+        'voronoi': 'Voronoi分割 (基于Voronoi多面体共享面积)'
+    }
+    print(f"  说明: {edge_desc.get(args.edge_strategy, '未知')}")
+    print(f"  使用对称性: {args.use_symmetry}")
 
     print(f"\n模型配置:")
     print(f"  coGN层数: {args.alignn_layers}")
